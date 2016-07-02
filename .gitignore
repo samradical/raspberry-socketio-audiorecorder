@@ -1,0 +1,13 @@
+dist/*
+src/images/cards/*
+src/images/items/*
+src/images/panos/*
+src/images/full/*
+src/videos/*
+node_modules
+client/build/
+client/assets.json
+.DS_Store
+bin/*
+*.wav
+*.app

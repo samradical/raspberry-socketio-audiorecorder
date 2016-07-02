@@ -13,7 +13,7 @@ void ofApp::setup(){
   // 256 samples per buffer
   // 4 num buffers (latency)
 
-  soundStream.printDeviceList();
+  //soundStream.printDeviceList();
 
   //if you want to set a different device id
   //soundStream.setDeviceID(0); //bear in mind the device id corresponds to all audio devices, including  input-only and output-only devices.
@@ -30,11 +30,11 @@ void ofApp::setup(){
   smoothedVol     = 0.0;
   scaledVol   = 0.0;
 
-  sampleRate = 44100;
+    sampleRate = 44100;
     channels = 2;
 
-    soundStream.setup(this, 0, channels, sampleRate, bufferSize, 4);
-
+    /*soundStream.setDeviceID(4);
+    soundStream.setup(this, 0, channels,sam, 256, 4);*/
 
     ofSetFrameRate(60);
     ofSetLogLevel(OF_LOG_VERBOSE);
@@ -60,7 +60,6 @@ void ofApp::setup(){
     bRecording = false;
     ofEnableAlphaBlending();
 
-
     isConnected = false;
     address = "http://127.0.0.1:8888";
     status = "not connected";
@@ -76,8 +75,14 @@ void ofApp::onConnection () {
   isConnected = true;
   bindEvents();
 
+  vector <ofSoundDevice> deviceList = soundStream.getDeviceList();
+  std::string deviceNames;
+  for (int i = 0; i < deviceList.size(); i++){
+     deviceNames += ("\n"+std::to_string(deviceList[i].deviceID) +" "+ deviceList[i].name);
+  }
+
   std::string devices = "devices";
-  std::string param = soundStream.printDeviceList().str();
+  std::string param = deviceNames;
   socketIO.emit(devices, param);
 }
 
@@ -86,9 +91,18 @@ void ofApp::bindEvents () {
   socketIO.bindEvent(serverEvent, serverEventName);
   ofAddListener(serverEvent, this, &ofApp::onServerEvent);
 
-  std::string pingEventName = "ping";
-  socketIO.bindEvent(pingEvent, pingEventName);
-  ofAddListener(pingEvent, this, &ofApp::onPingEvent);
+  std::string recordStartEventName = "startRecord";
+  socketIO.bindEvent(recordStartEvent, recordStartEventName);
+  ofAddListener(recordStartEvent, this, &ofApp::onRecordStartEvent);
+
+  std::string recordEndEventName = "endRecord";
+  socketIO.bindEvent(recordEndEvent, recordEndEventName);
+  ofAddListener(recordEndEvent, this, &ofApp::onRecordEndEvent);
+
+  std::string deviceID = "setDeviceId";
+  socketIO.bindEvent(deviceIDEvent, deviceID);
+  ofAddListener(deviceIDEvent, this, &ofApp::onSetDeviceIDEvent);
+
 }
 
 //--------------------------------------------------------------
@@ -98,17 +112,49 @@ void ofApp::gotEvent(string& name) {
 
 //--------------------------------------------------------------
 void ofApp::onServerEvent (ofxSocketIOData& data) {
-  ofLogNotice("ofxSocketIO", data.getStringValue("stringData"));
+  /*ofLogNotice("ofxSocketIO", data.getStringValue("stringData"));
   ofLogNotice("ofxSocketIO", ofToString(data.getIntValue("intData")));
   ofLogNotice("ofxSocketIO", ofToString(data.getFloatValue("floatData")));
-  ofLogNotice("ofxSocketIO", ofToString(data.getBoolValue("boolData")));
+  ofLogNotice("ofxSocketIO", ofToString(data.getBoolValue("boolData")));*/
 }
 
-void ofApp::onPingEvent (ofxSocketIOData& data) {
-  ofLogNotice("ofxSocketIO", "ping");
-  std::string pong = "pong";
+void ofApp::onRecordStartEvent(ofxSocketIOData & data) {
+  ofLogNotice("ofxSocketIO", "recordStarted");
+  bRecording = !bRecording;
+  fileName = data.getStringValue("fileName");
+  if (bRecording && !vidRecorder.isInitialized()) {
+    vidRecorder.setup(fileName + ofGetTimestampString() + fileExt, vidGrabber.getWidth(), vidGrabber.getHeight(), 30, sampleRate, channels);
+    //          vidRecorder.setup(fileName+ofGetTimestampString()+fileExt, vidGrabber.getWidth(), vidGrabber.getHeight(), 30); // no audio
+    //            vidRecorder.setup(fileName+ofGetTimestampString()+fileExt, 0,0,0, sampleRate, channels); // no video
+    //          vidRecorder.setupCustomOutput(vidGrabber.getWidth(), vidGrabber.getHeight(), 30, sampleRate, channels, "-vcodec mpeg4 -b 1600k -acodec mp2 -ab 128k -f mpegts udp://localhost:1234"); // for custom ffmpeg output string (streaming, etc)
+
+    // Start recording
+    vidRecorder.start();
+  } else if (!bRecording && vidRecorder.isInitialized()) {
+    vidRecorder.setPaused(true);
+  } else if (bRecording && vidRecorder.isInitialized()) {
+    vidRecorder.setPaused(false);
+  }
+  std::string pong = "recordStarted";
   std::string param = "foo";
   socketIO.emit(pong, param);
+}
+
+void ofApp::onRecordEndEvent(ofxSocketIOData & data) {
+  ofLogNotice("ofxSocketIO", "recordEnd");
+  bRecording = false;
+  vidRecorder.close();
+  std::string pong = "recordEnded";
+  std::string param = "foo";
+  socketIO.emit(pong, param);
+}
+
+void ofApp::onSetDeviceIDEvent (ofxSocketIOData& data) {
+  ofLogNotice("onSetDeviceIDEvent", ofToString(data.getIntValue("deviceID")));
+  soundStream.setDeviceID(data.getIntValue("deviceID"));
+  soundStream.setup(this, 0, channels ,sampleRate, 256, 4);
+  bDeviceIdSet = true;
+  //soundStream.setDeviceID(data.getIntValue("deviceID"));
 }
 
 
@@ -251,6 +297,8 @@ void ofApp::draw(){
 //--------------------------------------------------------------
 void ofApp::audioIn(float * input, int bufferSize, int nChannels){
 
+  if(bDeviceIdSet){
+
   float curVol = 0.0;
 
   // samples are "interleaved"
@@ -280,6 +328,7 @@ void ofApp::audioIn(float * input, int bufferSize, int nChannels){
   if(bRecording)
         vidRecorder.addAudioSamples(input, bufferSize, nChannels);
 
+  }
 }
 
 //--------------------------------------------------------------
@@ -304,22 +353,7 @@ void ofApp::keyPressed(int key){
   }
 
   if(key=='r'){
-        bRecording = !bRecording;
-        if(bRecording && !vidRecorder.isInitialized()) {
-            vidRecorder.setup(fileName+ofGetTimestampString()+fileExt, vidGrabber.getWidth(), vidGrabber.getHeight(), 30, sampleRate, channels);
-//          vidRecorder.setup(fileName+ofGetTimestampString()+fileExt, vidGrabber.getWidth(), vidGrabber.getHeight(), 30); // no audio
-//            vidRecorder.setup(fileName+ofGetTimestampString()+fileExt, 0,0,0, sampleRate, channels); // no video
-//          vidRecorder.setupCustomOutput(vidGrabber.getWidth(), vidGrabber.getHeight(), 30, sampleRate, channels, "-vcodec mpeg4 -b 1600k -acodec mp2 -ab 128k -f mpegts udp://localhost:1234"); // for custom ffmpeg output string (streaming, etc)
 
-            // Start recording
-            vidRecorder.start();
-        }
-        else if(!bRecording && vidRecorder.isInitialized()) {
-            vidRecorder.setPaused(true);
-        }
-        else if(bRecording && vidRecorder.isInitialized()) {
-            vidRecorder.setPaused(false);
-        }
     }
     if(key=='c'){
         bRecording = false;

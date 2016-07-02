@@ -43,6 +43,7 @@ class ofApp : public ofBaseApp{
 		ofVideoGrabber      vidGrabber;
     ofxVideoRecorder    vidRecorder;
     bool bRecording;
+    bool bDeviceIdSet;
     int sampleRate;
     int channels;
     string fileName;
@@ -57,7 +58,9 @@ class ofApp : public ofBaseApp{
     //socket
     void gotEvent(std::string& name);
     void onServerEvent(ofxSocketIOData& data);
-    void onPingEvent(ofxSocketIOData& data);
+    void onRecordStartEvent(ofxSocketIOData& data);
+    void onRecordEndEvent(ofxSocketIOData& data);
+    void onSetDeviceIDEvent(ofxSocketIOData& data);
 
     ofxSocketIO socketIO;
 
@@ -65,7 +68,9 @@ class ofApp : public ofBaseApp{
     void onConnection();
     void bindEvents();
     ofEvent<ofxSocketIOData&> serverEvent;
-    ofEvent<ofxSocketIOData&> pingEvent;
+    ofEvent<ofxSocketIOData&> recordStartEvent;
+    ofEvent<ofxSocketIOData&> recordEndEvent;
+    ofEvent<ofxSocketIOData&> deviceIDEvent;
 
     std::string address;
     std::string status;
